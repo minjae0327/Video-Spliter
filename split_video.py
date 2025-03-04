@@ -11,6 +11,9 @@ class SplitVideo():
         self.previous_text = ""
         self.timestamps = []
         self.last_inst = None
+        self.task_number = 0
+        self.last_instruction = 0
+        
         
     def __call__(self):
         cap = cv2.VideoCapture(self.video_path)
@@ -60,16 +63,16 @@ class SplitVideo():
 
         cap.release()
         cv2.destroyAllWindows()
+        
     
     # OCR 결과가 이전과 다를 경우 변경된 시점 저장
     def record_timestemp(self, predicted_text, timestamp):
-        
-
         # OCR 결과가 이전과 다를 경우
         if 1 <= int(predicted_text) <= 99 and predicted_text != self.previous_text:
             print(f"[{timestamp} ms] OCR 변경 감지: {predicted_text}")
             self.timestamps.append(timestamp)
             self.previous_text = predicted_text  # 이전 텍스트 업데이트
+            
 
     def extract_task_number(self, frame):
         text_list = reader.readtext(frame, detail=0)
@@ -84,8 +87,12 @@ class SplitVideo():
         # 괄호 안의 두 숫자를 각각 캡처하는 정규식
         match = re.search(r'\((\d+)/(\d+)\)', text)
         if match:
-            task_number = match.group(1)
-            last_instruction = match.group(2)
-            return task_number, last_instruction
+            self.task_number = match.group(1)
+            self.last_instruction = match.group(2)
+            return self.task_number, self.last_instruction
 
         return None, None  # OCR이 정상적으로 수행되지 않은 경우 예외 처리
+    
+    
+    def get_task_number(self):
+        return self.task_number, self.last_instruction

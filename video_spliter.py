@@ -2,8 +2,8 @@ import sys
 import cv2
 from PyQt5.QtWidgets import *
 from PyQt5.QtGui import QPixmap, QImage
-from PyQt5.QtCore import Qt
-from cutting_video import SplitVideo
+from PyQt5.QtCore import Qt, QTimer
+from split_video import SplitVideo
 
 class DragDropLabel(QLabel):
     def __init__(self, parent=None):
@@ -53,8 +53,9 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Video Spliter")
-        self.resize(600, 500)
+        self.resize(600, 550)
         self.save_directory = ""  # 저장 위치
+        self.split_video = None  # 분할 객체
 
         # UI 요소 생성
         self.label = DragDropLabel()
@@ -67,6 +68,11 @@ class MainWindow(QMainWindow):
         self.process_button = QPushButton("동영상 처리")
         self.process_button.clicked.connect(self.process_video)
 
+        # 진행 상태를 표시할 ProgressBar 추가
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setValue(0)
+        self.progress_bar.setAlignment(Qt.AlignCenter)
+
         # 결과 출력용 라벨 (옵션)
         self.result_label = QLabel("")
         self.result_label.setAlignment(Qt.AlignCenter)
@@ -77,9 +83,14 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.label)
         layout.addWidget(self.file_select_button)
         layout.addWidget(self.process_button)
+        layout.addWidget(self.progress_bar)
         layout.addWidget(self.result_label)
 
         self.setCentralWidget(central_widget)
+
+        # 타이머 설정 (OCR 진행 상태 주기적으로 갱신)
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.update_progress)
 
     def select_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "동영상 선택", "", "Video Files (*.mp4 *.avi *.mov *.mkv)")
@@ -101,11 +112,38 @@ class MainWindow(QMainWindow):
             return
         self.save_directory = directory
 
-        # 여기서 동영상 분할 코드를 호출합니다.
-        split_video = SplitVideo(video_path, self.save_directory)
-        split_video()
+        # OCR 실행 (별도 쓰레드에서 실행)
+        self.split_video = SplitVideo(video_path, self.save_directory)
+        self.timer.start(500)  # 0.5초마다 진행 상태 업데이트
+        self.split_video()  # OCR 실행
+        self.timer.stop()  # OCR 완료 후 타이머 정지
+
         # 처리 완료 후 결과 메시지 출력
         self.result_label.setText(f"동영상 처리 완료!\n저장 위치: {self.save_directory}")
+
+    # OCR 진행 상태 업데이트
+    def update_progress(self):
+        if self.split_video:
+            task, last = self.split_video.get_task_number()
+            if task and last:
+                progress = (int(task) / int(last)) * 100
+                self.progress_bar.setValue(int(progress))
+                self.result_label.setText(f"현재 진행 중: {task}/{last}")
+
+                # 완료되면 진행률 100% 설정
+                if task == last:
+                    self.progress_bar.setValue(100)
+                    self.timer.stop()                    
+                    
+    def closeEvent(self, event):
+        reply = QMessageBox.question(self, "프로그램 종료", "정말 종료하시겠습니까?",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            event.accept()
+            print("프로그램 종료")
+            sys.exit(0)  # 전체 프로그램 종료
+        else:
+            event.ignore()
 
 
 if __name__ == '__main__':
