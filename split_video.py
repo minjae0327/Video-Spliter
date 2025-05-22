@@ -2,9 +2,14 @@ import os
 import re
 import cv2
 import ffmpeg
-import easyocr
+import torch
+from PIL import Image
+from transformers import TrOCRProcessor, VisionEncoderDecoderModel
 
-reader = easyocr.Reader(['en'])
+processor = TrOCRProcessor.from_pretrained("microsoft/trocr-base-printed")
+model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-base-printed")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model.to(device)
 
 class SplitVideo():
     def __init__(self, video_path, save_path):
@@ -15,6 +20,8 @@ class SplitVideo():
         self.last_inst = None
         self.task_number = 0
         self.last_instruction = 0
+        self.processor = processor
+        self.model = model
         
         
     def __call__(self):
@@ -47,14 +54,14 @@ class SplitVideo():
                 if self.last_inst is None:
                     self.last_inst = last_inst
                     print(f"last_inst 검출됨: {self.last_inst}")
+                    
+                # 현재 동영상 시간(ms) 가져오기
+                timestamp = int(cap.get(cv2.CAP_PROP_POS_MSEC))
 
                 if inst_number == self.last_inst:
                     self.record_timestemp(inst_number, timestamp)
                     print("OCR 종료")
                     break
-
-                # 현재 동영상 시간(ms) 가져오기
-                timestamp = int(cap.get(cv2.CAP_PROP_POS_MSEC))
 
                 # OCR 결과 비교 및 시간 기록
                 self.record_timestemp(inst_number, timestamp)
@@ -78,23 +85,27 @@ class SplitVideo():
             
 
     def extract_task_number(self, frame):
-        text_list = reader.readtext(frame, detail=0)
+        # 1. OpenCV 프레임 → PIL 이미지로 변환
+        image = Image.fromarray(frame).convert("RGB")
 
-        # OCR 결과가 없을 경우 예외 처리
-        if not text_list:
-            return None, None
+        # 2. TrOCR 전처리
+        pixel_values = self.processor(images=image, return_tensors="pt").pixel_values.to(self.model.device)
 
-        # OCR 결과 문자열 결합
-        text = " ".join(text_list)
+        # 3. 모델 추론
+        with torch.no_grad():
+            generated_ids = self.model.generate(pixel_values, max_length=10)
 
-        # 괄호 안의 두 숫자를 각각 캡처하는 정규식
-        match = re.search(r'\((\d+)/(\d+)\)', text)
+        # 4. 디코딩
+        generated_text = self.processor.tokenizer.decode(generated_ids[0], skip_special_tokens=True)
+
+        # 5. 정규식으로 작업번호 추출
+        match = re.search(r'\((\d+)/(\d+)\)', generated_text)
         if match:
             self.task_number = match.group(1)
             self.last_instruction = match.group(2)
             return self.task_number, self.last_instruction
 
-        return None, None  # OCR이 정상적으로 수행되지 않은 경우 예외 처리
+        return None, None  # 인식 실패 시
     
     
     def get_video_duration(self, video_path):
@@ -113,10 +124,11 @@ class SplitVideo():
         
         # 저장 폴더 생성
         save_folder_path = os.makedirs(self.save_path + "/" + original_filename, exist_ok=True)
+        os.makedirs(save_folder_path, exist_ok=True)
 
         # 원본 영상 정보
         cap = cv2.VideoCapture(self.video_path)
-        fps = cap.get(cv2.CAP_PROP_FPS)
+        # fps = cap.get(cv2.CAP_PROP_FPS)
         cap.release()
         
         total_sec = self.get_video_duration(self.video_path)
