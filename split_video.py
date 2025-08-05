@@ -78,7 +78,7 @@ class SplitVideo():
     # OCR 결과가 이전과 다를 경우 변경된 시점 저장
     def record_timestemp(self, predicted_text, timestamp):
         # OCR 결과가 이전과 다를 경우
-        if 1 <= int(predicted_text) <= 99 and predicted_text != self.previous_text:
+        if 1 <= int(predicted_text) <= 199 and predicted_text != self.previous_text:
             print(f"[{timestamp} ms] OCR 변경 감지: {predicted_text}")
             self.timestamps.append(timestamp)
             self.previous_text = predicted_text  # 이전 텍스트 업데이트
