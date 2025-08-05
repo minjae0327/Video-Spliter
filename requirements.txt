@@ -1,0 +1,13 @@
+PyQt5
+opencv-python
+ffmpeg-python
+Pillow
+numpy
+torch
+torchvision
+transformers
+datasets
+evaluate
+pandas
+editdistance
+matplotlib
